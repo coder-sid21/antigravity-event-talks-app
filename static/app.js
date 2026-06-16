@@ -19,6 +19,8 @@ const selectionBar = document.getElementById('selection-bar');
 const selectionText = document.getElementById('selection-text');
 const btnClearSelection = document.getElementById('btn-clear-selection');
 const btnTweetSelected = document.getElementById('btn-tweet-selected');
+const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const btnExportCsv = document.getElementById('btn-export-csv');
 
 // Stats Elements
 const valTotal = document.getElementById('val-total');
@@ -49,6 +51,7 @@ let activeTweetData = {
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+    initializeTheme();
     fetchReleaseNotes();
     setupEventListeners();
 });
@@ -59,6 +62,12 @@ function setupEventListeners() {
     btnRefresh.addEventListener('click', () => {
         fetchReleaseNotes(true);
     });
+
+    // Theme toggle
+    btnThemeToggle.addEventListener('click', toggleTheme);
+
+    // CSV export
+    btnExportCsv.addEventListener('click', exportToCSV);
 
     // Search input
     searchInput.addEventListener('input', (e) => {
@@ -452,9 +461,14 @@ function renderFeed() {
                     <i class="fa-solid fa-up-right-from-square"></i>
                     <span>docs.cloud.google.com</span>
                 </a>
-                <button class="btn-card-tweet" data-id="${item.id}" title="Compose a Tweet about this update" aria-label="Compose a Tweet about this update">
-                    <i class="fa-brands fa-x-twitter"></i>
-                </button>
+                <div class="card-actions-wrapper">
+                    <button class="btn-card-copy" data-id="${item.id}" title="Copy description to clipboard" aria-label="Copy description to clipboard">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                    <button class="btn-card-tweet" data-id="${item.id}" title="Compose a Tweet about this update" aria-label="Compose a Tweet about this update">
+                        <i class="fa-brands fa-x-twitter"></i>
+                    </button>
+                </div>
             </div>
         `;
 
@@ -472,6 +486,21 @@ function renderFeed() {
                 card.setAttribute('aria-selected', 'false');
             }
             updateSelectionBar();
+        });
+
+        const btnCopy = card.querySelector('.btn-card-copy');
+        btnCopy.addEventListener('click', () => {
+            navigator.clipboard.writeText(item.text)
+                .then(() => {
+                    const icon = btnCopy.querySelector('i');
+                    icon.className = 'fa-solid fa-check';
+                    btnCopy.style.color = 'var(--color-green)';
+                    setTimeout(() => {
+                        icon.className = 'fa-regular fa-copy';
+                        btnCopy.style.color = '';
+                    }, 2000);
+                })
+                .catch(err => console.error('Failed to copy description:', err));
         });
 
         const btnTweet = card.querySelector('.btn-card-tweet');
@@ -601,4 +630,89 @@ function updateTweetPreview(text) {
         btnShareTweet.disabled = false;
         btnShareTweet.style.opacity = '1';
     }
+}
+
+// Theme Handlers
+function initializeTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.body.setAttribute('data-theme', savedTheme);
+    updateThemeIcon(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.body.getAttribute('data-theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcon(newTheme);
+}
+
+function updateThemeIcon(theme) {
+    const icon = btnThemeToggle.querySelector('.theme-icon');
+    if (theme === 'light') {
+        icon.className = 'fa-solid fa-sun theme-icon';
+    } else {
+        icon.className = 'fa-solid fa-moon theme-icon';
+    }
+}
+
+// Export to CSV Functionality
+function exportToCSV() {
+    // Get currently visible/filtered items
+    // Re-run the exact filter logic from renderFeed to export what's active
+    let filtered = processedItems.filter(item => {
+        if (currentFilter !== 'all') {
+            const itemType = item.type.toLowerCase();
+            if (currentFilter === 'other' && ['feature', 'issue', 'deprecated'].includes(itemType)) {
+                return false;
+            } else if (currentFilter !== 'other' && itemType !== currentFilter) {
+                return false;
+            }
+        }
+        if (searchQuery) {
+            const inDate = item.date.toLowerCase().includes(searchQuery);
+            const inType = item.type.toLowerCase().includes(searchQuery);
+            const inText = item.text.toLowerCase().includes(searchQuery);
+            return inDate || inType || inText;
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        alert('No data to export.');
+        return;
+    }
+
+    // Helper to escape CSV cell data
+    const escapeCSV = (text) => {
+        if (!text) return '';
+        return '"' + text.replace(/"/g, '""').replace(/\r?\n/g, ' ').trim() + '"';
+    };
+
+    // Build CSV Content
+    const headers = ['ID', 'Date', 'Type', 'Description', 'Docs URL'];
+    const csvRows = [headers.join(',')];
+
+    filtered.forEach(item => {
+        const row = [
+            escapeCSV(item.id),
+            escapeCSV(item.date),
+            escapeCSV(item.type),
+            escapeCSV(item.text),
+            escapeCSV(item.link)
+        ];
+        csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    // Trigger download
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bigquery_release_notes_${currentFilter}_export.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
